@@ -13,6 +13,11 @@ import torch
 
 def binary_detector_evaluator(pred_stack, target_stack, margin):
     rise_true, rise_pred_correct, fall_true, fall_pred_correct = 0, 0, 0, 0
+    
+    # Check if stacks are empty
+    if pred_stack.shape[0] == 0 or target_stack.shape[0] == 0:
+        return rise_true, rise_pred_correct, fall_true, fall_pred_correct
+    
     target_rotated = torch.cat([target_stack[0].unsqueeze(0), target_stack[:-1]], dim=0)
     pred_rotated = torch.cat([pred_stack[0].unsqueeze(0), pred_stack[:-1]], dim=0)
 

@@ -45,9 +45,49 @@ def label_sampling_tuh(labels, feature_samplerate):
     for i in labels:
         begin, end, label = i.split(" ")[:3]
 
+        # Handle binary label type: map any non-bckg label to 'seiz'
+        if GLOBAL_DATA['label_type'] == 'tse_bi' and label not in GLOBAL_DATA['disease_labels']:
+            if label != 'bckg':
+                label = 'seiz'
+        
+        # If label still not found, skip or use default
+        if label not in GLOBAL_DATA['disease_labels']:
+            print(f"Warning: Unknown label '{label}' found. Skipping this interval.")
+            continue
+
         intv_count, remained = divmod(float(end) - float(begin) + remained, feature_intv)
         y_target += int(intv_count) * str(GLOBAL_DATA['disease_labels'][label])
     return y_target
+
+def read_label_file(file_name, label_type):
+    """Read label file, handling both .tse_bi and .csv_bi formats"""
+    label_file_path = file_name + "." + label_type
+    # Try .csv_bi if .tse_bi not found (for newer TUH dataset format)
+    if not os.path.exists(label_file_path) and label_type == 'tse_bi':
+        label_file_path = file_name + ".csv_bi"
+    
+    try:
+        label_file = open(label_file_path, 'r')
+    except FileNotFoundError:
+        return None, None
+    
+    y = label_file.readlines()
+    y = list(y[2:])  # Skip first 2 header lines
+    
+    # Handle CSV format (comma-separated) vs TSE format (space-separated)
+    if label_file_path.endswith('.csv_bi'):
+        # CSV format: skip CSV header line, then parse comma-separated values
+        y = [line for line in y if line.strip() and not line.strip().startswith('#')]
+        if y and y[0].startswith('channel,'):  # Skip CSV header
+            y = y[1:]
+        y_labels = list(set([line.split(",")[3].strip() for line in y if line.strip()]))  # label is 4th column (index 3)
+        # Convert CSV format to space-separated format for compatibility
+        y = [f"{line.split(',')[1]} {line.split(',')[2]} {line.split(',')[3]}" for line in y if line.strip()]
+    else:
+        # TSE format: space-separated
+        y_labels = list(set([i.split(" ")[2] for i in y if len(i.split(" ")) > 2]))
+    
+    return y, y_labels
 
 
 def generate_training_data_leadwise_tuh_train(file):
@@ -61,11 +101,11 @@ def generate_training_data_leadwise_tuh_train(file):
         label_list_c.append(label_noref)   
 
     ############################# part 1: labeling  ###############################
-    label_file = open(file_name + "." + GLOBAL_DATA['label_type'], 'r') # EX) 00007235_s003_t003.tse or 00007235_s003_t003.tse_bi
-    y = label_file.readlines()
-    y = list(y[2:])
-    y_labels = list(set([i.split(" ")[2] for i in y]))
-    signal_sample_rate = int(signal_headers[0]['sample_rate'])
+    y, y_labels = read_label_file(file_name, GLOBAL_DATA['label_type'])
+    if y is None:
+        print(f"Warning: Label file not found for {file_name}. Skipping this file.")
+        return  # Skip this file if the label file doesn't exist
+    signal_sample_rate = int(signal_headers[0]['sample_frequency'])
     if sample_rate > signal_sample_rate:
         return
     if not all(elem in label_list_c for elem in GLOBAL_DATA['label_list']): # if one or more of ['EEG FP1', 'EEG FP2', ... doesn't exist
@@ -84,7 +124,7 @@ def generate_training_data_leadwise_tuh_train(file):
         if label not in GLOBAL_DATA['label_list']:
             continue
 
-        if int(signal_headers[idx]['sample_rate']) > sample_rate:
+        if int(signal_headers[idx]['sample_frequency']) > sample_rate:
             secs = len(signal)/float(signal_sample_rate)
             samps = int(secs*sample_rate)
             x = sci_sig.resample(signal, samps)
@@ -121,7 +161,7 @@ def generate_training_data_leadwise_tuh_train(file):
 
     # slice and save if training data
     new_data = {}
-    raw_data = torch.Tensor(signal_final_list_raw).permute(1,0)
+    raw_data = torch.from_numpy(np.array(signal_final_list_raw)).permute(1,0)
 
     max_seg_len_before_seiz_label = GLOBAL_DATA['max_bckg_before_slicelength'] * GLOBAL_DATA['feature_sample_rate']
     max_seg_len_before_seiz_raw = GLOBAL_DATA['max_bckg_before_slicelength'] * GLOBAL_DATA['sample_rate']
@@ -288,16 +328,17 @@ def generate_training_data_leadwise_tuh_train(file):
         else:
             sliced_y3 = None
 
-        new_data['RAW_DATA'] = [sliced_raw]
-        new_data['LABEL1'] = [sliced_y]
-        new_data['LABEL2'] = [sliced_y2]
-        new_data['LABEL3'] = [sliced_y3]
+        # Convert tensors to numpy arrays for efficient storage
+        new_data['RAW_DATA'] = [sliced_raw.cpu().numpy().astype(np.float16)]
+        new_data['LABEL1'] = [sliced_y.cpu().numpy().astype(np.uint8)]
+        new_data['LABEL2'] = [sliced_y2.cpu().numpy().astype(np.uint8) if sliced_y2 is not None else None]
+        new_data['LABEL3'] = [sliced_y3.cpu().numpy().astype(np.uint8) if sliced_y3 is not None else None]
 
         prelabel_len = pre_bckg_lens_label[data_idx]
         label = label_list_for_filename[data_idx]
         
         with open(GLOBAL_DATA['data_file_directory'] + "/{}_c{}_pre{}_len{}_label_{}.pkl".format(data_file_name, str(data_idx), str(prelabel_len), str(len(sliced_y)), str(label)), 'wb') as _f:
-            pickle.dump(new_data, _f)      
+            pickle.dump(new_data, _f, protocol=pickle.HIGHEST_PROTOCOL)      
         new_data = {}
 
 def generate_training_data_leadwise_tuh_train_final(file):
@@ -311,11 +352,11 @@ def generate_training_data_leadwise_tuh_train_final(file):
         label_list_c.append(label_noref)   
 
     ############################# part 1: labeling  ###############################
-    label_file = open(file_name + "." + GLOBAL_DATA['label_type'], 'r') # EX) 00007235_s003_t003.tse or 00007235_s003_t003.tse_bi
-    y = label_file.readlines()
-    y = list(y[2:])
-    y_labels = list(set([i.split(" ")[2] for i in y]))
-    signal_sample_rate = int(signal_headers[0]['sample_rate'])
+    y, y_labels = read_label_file(file_name, GLOBAL_DATA['label_type'])
+    if y is None:
+        print(f"Warning: Label file not found for {file_name}. Skipping this file.")
+        return  # Skip this file if the label file doesn't exist
+    signal_sample_rate = int(signal_headers[0]['sample_frequency'])
     if sample_rate > signal_sample_rate:
         return
     if not all(elem in label_list_c for elem in GLOBAL_DATA['label_list']): # if one or more of ['EEG FP1', 'EEG FP2', ... doesn't exist
@@ -328,14 +369,17 @@ def generate_training_data_leadwise_tuh_train_final(file):
     patient_wise_dir = "/".join(file_name.split("/")[:-2])
     patient_id = file_name.split("/")[-3]
     edf_list = search_walk({'path': patient_wise_dir, 'extension': ".tse_bi"})
+    if not edf_list:  # Try csv_bi if tse_bi not found
+        edf_list = search_walk({'path': patient_wise_dir, 'extension': ".csv_bi"})
     patient_bool = False
-    for tse_bi_file in edf_list:
-        label_file = open(tse_bi_file, 'r') # EX) 00007235_s003_t003.tse or 00007235_s003_t003.tse_bi
-        y = label_file.readlines()
-        y = list(y[2:])
+    for label_file_path in edf_list:
+        y, _ = read_label_file(".".join(label_file_path.split(".")[:-1]), GLOBAL_DATA['label_type'])
+        if y is None:
+            continue
         for line in y:
             if len(line) > 5:
-                if line.split(" ")[2] != 'bckg':
+                parts = line.split(" ")
+                if len(parts) > 2 and parts[2] != 'bckg':
                     patient_bool = True
                     break
         if patient_bool:
@@ -351,7 +395,7 @@ def generate_training_data_leadwise_tuh_train_final(file):
         if label not in GLOBAL_DATA['label_list']:
             continue
 
-        if int(signal_headers[idx]['sample_rate']) > sample_rate:
+        if int(signal_headers[idx]['sample_frequency']) > sample_rate:
             secs = len(signal)/float(signal_sample_rate)
             samps = int(secs*sample_rate)
             x = sci_sig.resample(signal, samps)
@@ -388,7 +432,7 @@ def generate_training_data_leadwise_tuh_train_final(file):
 
     # slice and save if training data
     new_data = {}
-    raw_data = torch.Tensor(signal_final_list_raw).permute(1,0)
+    raw_data = torch.from_numpy(np.array(signal_final_list_raw)).permute(1,0)
     raw_data = raw_data.type(torch.float16)
     
     min_seg_len_label = GLOBAL_DATA['min_binary_slicelength'] * GLOBAL_DATA['feature_sample_rate']
@@ -533,15 +577,16 @@ def generate_training_data_leadwise_tuh_train_final(file):
         else:
             sliced_y3 = None
 
-        new_data['RAW_DATA'] = [sliced_raw]
-        new_data['LABEL1'] = [sliced_y]
-        new_data['LABEL2'] = [sliced_y2]
-        new_data['LABEL3'] = [sliced_y3]
+        # Convert tensors to numpy arrays for efficient storage
+        new_data['RAW_DATA'] = [sliced_raw.cpu().numpy().astype(np.float16)]
+        new_data['LABEL1'] = [sliced_y.cpu().numpy().astype(np.uint8)]
+        new_data['LABEL2'] = [sliced_y2.cpu().numpy().astype(np.uint8) if sliced_y2 is not None else None]
+        new_data['LABEL3'] = [sliced_y3.cpu().numpy().astype(np.uint8) if sliced_y3 is not None else None]
 
         label = label_list_for_filename[data_idx]
         
         with open(GLOBAL_DATA['data_file_directory'] + "/{}_c{}_label_{}.pkl".format(data_file_name, str(data_idx), str(label)), 'wb') as _f:
-            pickle.dump(new_data, _f)      
+            pickle.dump(new_data, _f, protocol=pickle.HIGHEST_PROTOCOL)      
         new_data = {}
 
 def generate_training_data_leadwise_tuh_dev(file):
@@ -555,11 +600,11 @@ def generate_training_data_leadwise_tuh_dev(file):
         label_list_c.append(label_noref)   
 
     ############################# part 1: labeling  ###############################
-    label_file = open(file_name + "." + GLOBAL_DATA['label_type'], 'r') # EX) 00007235_s003_t003.tse or 00007235_s003_t003.tse_bi
-    y = label_file.readlines()
-    y = list(y[2:])
-    y_labels = list(set([i.split(" ")[2] for i in y]))
-    signal_sample_rate = int(signal_headers[0]['sample_rate'])
+    y, y_labels = read_label_file(file_name, GLOBAL_DATA['label_type'])
+    if y is None:
+        print(f"Warning: Label file not found for {file_name}. Skipping this file.")
+        return  # Skip this file if the label file doesn't exist
+    signal_sample_rate = int(signal_headers[0]['sample_frequency'])
     if sample_rate > signal_sample_rate:
         return
     if not all(elem in label_list_c for elem in GLOBAL_DATA['label_list']): # if one or more of ['EEG FP1', 'EEG FP2', ... doesn't exist
@@ -571,14 +616,17 @@ def generate_training_data_leadwise_tuh_dev(file):
     # check if seizure patient or non-seizure patient
     patient_wise_dir = "/".join(file_name.split("/")[:-2])
     edf_list = search_walk({'path': patient_wise_dir, 'extension': ".tse_bi"})
+    if not edf_list:  # Try csv_bi if tse_bi not found
+        edf_list = search_walk({'path': patient_wise_dir, 'extension': ".csv_bi"})
     patient_bool = False
-    for tse_bi_file in edf_list:
-        label_file = open(tse_bi_file, 'r') # EX) 00007235_s003_t003.tse or 00007235_s003_t003.tse_bi
-        y = label_file.readlines()
-        y = list(y[2:])
+    for label_file_path in edf_list:
+        y, _ = read_label_file(".".join(label_file_path.split(".")[:-1]), GLOBAL_DATA['label_type'])
+        if y is None:
+            continue
         for line in y:
             if len(line) > 5:
-                if line.split(" ")[2] != 'bckg':
+                parts = line.split(" ")
+                if len(parts) > 2 and parts[2] != 'bckg':
                     patient_bool = True
                     break
         if patient_bool:
@@ -594,7 +642,7 @@ def generate_training_data_leadwise_tuh_dev(file):
         if label not in GLOBAL_DATA['label_list']:
             continue
 
-        if int(signal_headers[idx]['sample_rate']) > sample_rate:
+        if int(signal_headers[idx]['sample_frequency']) > sample_rate:
             secs = len(signal)/float(signal_sample_rate)
             samps = int(secs*sample_rate)
             x = sci_sig.resample(signal, samps)
@@ -631,12 +679,12 @@ def generate_training_data_leadwise_tuh_dev(file):
 
     # slice and save if training data
     new_data = {}
-    raw_data = torch.Tensor(signal_final_list_raw).permute(1,0)
+    raw_data = torch.from_numpy(np.array(signal_final_list_raw)).permute(1,0)
     raw_data = raw_data.type(torch.float16)
     
     # max_seg_len_before_seiz_label = GLOBAL_DATA['max_bckg_before_slicelength'] * GLOBAL_DATA['feature_sample_rate']
     # max_seg_len_before_seiz_raw = GLOBAL_DATA['max_bckg_before_slicelength'] * GLOBAL_DATA['sample_rate']
-    # min_end_margin_label = args.slice_end_margin_length * GLOBAL_DATA['feature_sample_rate']
+    min_end_margin_label = args.slice_end_margin_length * GLOBAL_DATA['feature_sample_rate']
     # min_end_margin_raw = args.slice_end_margin_length * GLOBAL_DATA['sample_rate']
 
     min_seg_len_label = GLOBAL_DATA['min_binary_slicelength'] * GLOBAL_DATA['feature_sample_rate']
@@ -738,15 +786,16 @@ def generate_training_data_leadwise_tuh_dev(file):
         else:
             sliced_y3 = None
 
-        new_data['RAW_DATA'] = [sliced_raw]
-        new_data['LABEL1'] = [sliced_y]
-        new_data['LABEL2'] = [sliced_y2]
-        new_data['LABEL3'] = [sliced_y3]
+        # Convert tensors to numpy arrays for efficient storage
+        new_data['RAW_DATA'] = [sliced_raw.cpu().numpy().astype(np.float16)]
+        new_data['LABEL1'] = [sliced_y.cpu().numpy().astype(np.uint8)]
+        new_data['LABEL2'] = [sliced_y2.cpu().numpy().astype(np.uint8) if sliced_y2 is not None else None]
+        new_data['LABEL3'] = [sliced_y3.cpu().numpy().astype(np.uint8) if sliced_y3 is not None else None]
 
         label = label_list_for_filename[data_idx]
         
         with open(GLOBAL_DATA['data_file_directory'] + "/{}_c{}_len{}_label_{}.pkl".format(data_file_name, str(data_idx), str(len(sliced_y)), str(label)), 'wb') as _f:
-            pickle.dump(new_data, _f)      
+            pickle.dump(new_data, _f, protocol=pickle.HIGHEST_PROTOCOL)      
         new_data = {}
 
 
@@ -767,13 +816,15 @@ def main(args):
                     'EEG C3', 'EEG C4', 'EEG CZ', 'EEG T3', 'EEG T4', 
                     'EEG P3', 'EEG P4', 'EEG O1', 'EEG O2', 'EEG T5', 'EEG T6', 'EEG PZ', 'EEG FZ']
 
-    eeg_data_directory = "$PATH_TO_EEG/{}".format(data_type)
+    # eeg_data_directory = "$PATH_TO_EEG/{}".format(data_type)
     # eeg_data_directory = "/mnt/aitrics_ext/ext01/shared/edf/tuh_final/{}".format(data_type)
+    eeg_data_directory = "/srv/data/biosignals/isip.piconepress.com/{}".format(data_type)
     
     if label_type == "tse":
         disease_labels =  {'bckg': 0, 'cpsz': 1, 'mysz': 2, 'gnsz': 3, 'fnsz': 4, 'tnsz': 5, 'tcsz': 6, 'spsz': 7, 'absz': 8}
     elif label_type == "tse_bi":
         disease_labels =  {'bckg': 0, 'seiz': 1}
+        args.disease_type = ['seiz']
     disease_labels_inv = {v: k for k, v in disease_labels.items()}
     
     edf_list1 = search_walk({'path': eeg_data_directory, 'extension': ".edf"})

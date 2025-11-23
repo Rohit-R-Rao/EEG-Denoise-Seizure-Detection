@@ -84,10 +84,16 @@ class Logger:
         self.writer.add_scalar('train/lr', lr, global_step=step)
 
     def log_val_loss(self, val_step, step):
-        self.writer.add_scalar('val/loss', self.val_loss / val_step, global_step=step)
+        if val_step > 0:
+            self.writer.add_scalar('val/loss', self.val_loss / val_step, global_step=step)
+        # Skip logging if no validation iterations to avoid division by zero
 
     def add_validation_logs(self, step):
         if self.args.task_type == "binary":
+            # Check if evaluator has any data before computing metrics
+            if len(self.evaluator.y_true_multi) == 0 or len(self.evaluator.y_pred_multi) == 0:
+                print("Warning: No validation data collected, skipping metric computation")
+                return
             result, tpr, fnr, tnr, fpr = self.evaluator.performance_metric_binary()
             auc = result[0]
             os.system("echo  \'##### Current Validation results #####\'")
@@ -161,8 +167,22 @@ class Logger:
 
         self.writer.flush()
 
-    def save(self, model, optimizer, step, epoch, last=None):
+    def save(self, model, optimizer, step, epoch, last=None, scheduler=None, iteration=None):
         ckpt = {'model': model.state_dict(), 'optimizer': optimizer.state_dict(), 'best_step': step, 'last_step' : last, 'score' : self.best_auc, 'epoch' : epoch}
+        
+        # Add scheduler state if provided
+        if scheduler is not None:
+            ckpt['scheduler'] = scheduler.state_dict()
+        
+        # Add iteration counter if provided
+        if iteration is not None:
+            ckpt['iteration'] = iteration
+        
+        # Handle LARC wrapper - check if optimizer is wrapped
+        if hasattr(optimizer, 'optim'):  # LARC wrapper
+            ckpt['larc_wrapper'] = True
+        else:
+            ckpt['larc_wrapper'] = False
         
         if step == self.best_iter:
             self.save_ckpt(ckpt, 'best_{}.pth'.format(str(self.args.seed)))

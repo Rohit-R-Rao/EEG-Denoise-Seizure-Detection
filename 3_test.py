@@ -23,7 +23,7 @@ import torch.nn as nn
 
 from control.config import args
 from builder.data.data_preprocess import get_data_preprocessed
-from builder.models import get_detector_model, get_multiclassification_model, grad_cam, get_augmentation
+from builder.models import get_detector_model
 from builder.utils.metrics import Evaluator
 from builder.utils.logger import Logger
 from builder.trainer.trainer import *
@@ -65,14 +65,17 @@ num_windows = 30 - args.window_size
 for name in names: 
     # Check if checkpoint exists
     if args.last:
-        ckpt_path = args.dir_result + '/' + name + '/ckpts/best_{}.pth'.format(str(args.seed))
+        ckpt_path = args.dir_result + '/' + name + '/ckpts/last_{}.pth'.format(str(args.seed))
     elif args.best:
         ckpt_path = args.dir_result + '/' + name + '/ckpts/best_{}.pth'.format(str(args.seed))
-    # if not os.path.exists(ckpt_path):
-    #     continue
-
-    ckpt_path = args.dir_result + '/' + name + '/ckpts/best_0.pth'
-    ckpt = torch.load(ckpt_path, map_location=device)
+    
+    if not os.path.exists(ckpt_path):
+        print(f"Checkpoint not found at {ckpt_path}, trying best_0.pth...")
+        ckpt_path = args.dir_result + '/' + name + '/ckpts/best_0.pth'
+        if not os.path.exists(ckpt_path):
+            print(f"Checkpoint not found at {ckpt_path}. Skipping...")
+            continue
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
 
     # state = {k.replace('module.', ''): v for k, v in ckpt['model'].items()}
     state = {k: v for k, v in ckpt['model'].items()}
@@ -104,6 +107,10 @@ for name in names:
             else:
                 print("Selected trainer is not prepared yet...")
                 exit(1)
+            
+            # Check if ignore_model_speed attribute exists, default to True (skip speed measurement)
+            if not hasattr(args, 'ignore_model_speed'):
+                args.ignore_model_speed = True
             
             if not args.ignore_model_speed:
                 iteration_end = time.time()

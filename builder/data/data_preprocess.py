@@ -21,7 +21,7 @@ from tqdm import tqdm
 from scipy.signal import stft, hilbert, butter, freqz, filtfilt, find_peaks, iirnotch
 from control.config import args
 from itertools import groupby
-
+import os
 import torch
 import torch.nn.utils.rnn as rnn_utils
 from torch.utils.data import DataLoader
@@ -74,12 +74,17 @@ def eeg_binary_collate_fn(train_data):
      
             if args.eeg_type == "bipolar":
                 bipolar_signals = bipolar_signals_func(signals)
-                signals = torch.stack(bipolar_signals)
+                signals = torch.stack([torch.from_numpy(sig) if isinstance(sig, np.ndarray) else sig for sig in bipolar_signals])
             elif args.eeg_type == "uni_bipolar":
                 bipolar_signals = bipolar_signals_func(signals)
-                signals = torch.cat((signals, torch.stack(bipolar_signals)))
+                bipolar_tensors = torch.stack([torch.from_numpy(sig) if isinstance(sig, np.ndarray) else sig for sig in bipolar_signals])
+                if isinstance(signals, np.ndarray):
+                    signals = torch.from_numpy(signals)
+                signals = torch.cat((signals, bipolar_tensors))
             else:
-                pass #unipolar
+                # unipolar
+                if isinstance(signals, np.ndarray):
+                    signals = torch.from_numpy(signals)
 
             batch.append((signals, y, input_seiz.split("/")[-1].split(".")[0]))
     pad_id = 0
@@ -230,11 +235,25 @@ def get_data_preprocessed(args, mode="train"):
     print("Preparing data for bianry detector...")
     train_data_path = args.data_path + "/dataset-tuh_task-binary_datatype-train_v6"
     # dev_data_path = args.data_path + "/dataset-tuh_task-binary_datatype-dev_v6"
-    dev_data_path = args.data_path + "/dataset-tuh_task-binary_noslice_datatype-dev_v6"
-    train_dir = search_walk({"path": train_data_path, "extension": ".pkl"})
-    dev_dir = search_walk({"path": dev_data_path, "extension": ".pkl"})
+    # dev_data_path = args.data_path + "/dataset-tuh_task-binary_noslice_datatype-dev_v6"
+    dev_data_path = args.data_path + "/dataset-tuh_task-binary_datatype-dev_v6"
+    # train_dir = search_walk({"path": train_data_path, "extension": ".pkl"})
+    # train_dir = search_walk({"path": train_data_path, "extension": ".pkl"})
+    # dev_dir = search_walk({"path": dev_data_path, "extension": ".pkl"})
+    # random.shuffle(train_dir)
+    # random.shuffle(dev_dir)
+    if not os.path.isdir(train_data_path):
+        raise FileNotFoundError(f"Training data path not found: {train_data_path}. Check your 'control/path_configs.yaml' file.")
+    if not os.path.isdir(dev_data_path):
+        raise FileNotFoundError(f"Development data path not found: {dev_data_path}. Check your 'control/path_configs.yaml' file.")
+
+    # Build the file list manually instead of using the buggy search_walk
+    train_dir = [os.path.join(train_data_path, f) for f in os.listdir(train_data_path) if f.endswith('.pkl')]
+    dev_dir = [os.path.join(dev_data_path, f) for f in os.listdir(dev_data_path) if f.endswith('.pkl')]
+    
     random.shuffle(train_dir)
     random.shuffle(dev_dir)
+    
 
     aug_train = ["0"] * len(train_dir)
     if args.augmentation == True:
@@ -303,8 +322,18 @@ def get_data_preprocessed(args, mode="train"):
     # abnor_nor_ratio = len(class_sample_count)-1
     # weight[0] = weight[0] * abnor_nor_ratio
     if args.binary_sampler_type == "6types":
-        patT_idx = (train_data.type_type).index("patT")
-        patF_idx = (train_data.type_type).index("patF")
+        # Try "patT" first, fall back to "0_patT" if not found
+        if "patT" in train_data.type_type:
+            patT_idx = (train_data.type_type).index("patT")
+            patF_idx = (train_data.type_type).index("patF")
+        elif "0_patT" in train_data.type_type:
+            patT_idx = (train_data.type_type).index("0_patT")
+            patF_idx = (train_data.type_type).index("0_patF")
+        else:
+            print(f"Warning: Could not find patT/patF in type_type: {train_data.type_type}")
+            print("No control on sampler rate")
+            patT_idx = None
+            patF_idx = None
         # weight[patT_idx] = weight[patT_idx] * 2
         # weight[patF_idx] = weight[patF_idx] * 2
     elif args.binary_sampler_type == "30types":

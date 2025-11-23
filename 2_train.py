@@ -27,7 +27,6 @@ import torch.optim as optim
 import torch.nn.utils.rnn as rnn_utils
 from torch.autograd import Variable
 from torchsummary import summary
-from torchinfo import summary
 
 from builder.utils.lars import LARC
 from control.config import args
@@ -36,6 +35,7 @@ from builder.data.data_preprocess import get_data_preprocessed
 # from builder.data.data_preprocess_temp1 import get_data_preprocessed
 from builder.models import get_detector_model, grad_cam
 from builder.utils.logger import Logger
+# from builder.utils.logger import Logger, experiment_results_validation, experiment_results
 from builder.utils.utils import set_seeds, set_devices
 from builder.utils.cosine_annealing_with_warmup import CosineAnnealingWarmUpRestarts
 from builder.utils.cosine_annealing_with_warmupSingle import CosineAnnealingWarmUpSingle
@@ -46,8 +46,8 @@ os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 list_of_test_results_per_seed = []
 
 # define result class
-save_valid_results = experiment_results_validation(args)
-save_test_results = experiment_results(args)
+# save_valid_results = experiment_results_validation(args)
+# save_test_results = experiment_results(args)
 
 for seed_num in args.seed_list:
     args.seed = seed_num
@@ -66,18 +66,33 @@ for seed_num in args.seed_list:
     criterion = nn.CrossEntropyLoss(reduction='none')
 
     if args.checkpoint:
+        # Fix: Use correct checkpoint file based on --last or --best
         if args.last:
-            ckpt_path = args.dir_result + '/' + args.project_name + '/ckpts/best_{}.pth'.format(str(seed_num))
+            ckpt_path = args.dir_result + '/' + args.project_name + '/ckpts/last_{}.pth'.format(str(seed_num))
         elif args.best:
             ckpt_path = args.dir_result + '/' + args.project_name + '/ckpts/best_{}.pth'.format(str(seed_num))
-        checkpoint = torch.load(ckpt_path, map_location=device)
-        model.load_state_dict(checkpoint['model'])
-        logger.best_auc = checkpoint['score']
-        start_epoch = checkpoint['epoch']
-        del checkpoint
+        else:
+            # Default to best if neither specified
+            ckpt_path = args.dir_result + '/' + args.project_name + '/ckpts/best_{}.pth'.format(str(seed_num))
+        
+        if not os.path.exists(ckpt_path):
+            print(f"Warning: Checkpoint not found at {ckpt_path}. Starting from scratch.")
+            checkpoint = None
+            logger.best_auc = 0
+            start_epoch = 1
+            start_iteration = 0
+        else:
+            checkpoint = torch.load(ckpt_path, map_location=device)
+            model.load_state_dict(checkpoint['model'])
+            logger.best_auc = checkpoint.get('score', 0)
+            start_epoch = checkpoint.get('epoch', 1)
+            start_iteration = checkpoint.get('iteration', 0)
+            print(f"Loaded checkpoint from {ckpt_path}: epoch={start_epoch}, iteration={start_iteration}")
     else:
+        checkpoint = None
         logger.best_auc = 0
         start_epoch = 1
+        start_iteration = 0
 
     if args.optim == 'adam':
         optimizer = optim.Adam(model.parameters(), lr=args.lr_init, weight_decay=args.weight_decay)
@@ -95,6 +110,14 @@ for seed_num in args.seed_list:
         optimizer = optim.AdamW(model.parameters(), lr = args.lr_init, weight_decay=args.weight_decay)
         optimizer = LARC(optimizer=optimizer, eps=1e-8, trust_coefficient=0.001)
 
+    # Load optimizer state if resuming
+    if checkpoint is not None and 'optimizer' in checkpoint:
+        if checkpoint.get('larc_wrapper', False) and hasattr(optimizer, 'optim'):
+            optimizer.optim.load_state_dict(checkpoint['optimizer'])
+        else:
+            optimizer.load_state_dict(checkpoint['optimizer'])
+        print("Loaded optimizer state from checkpoint")
+
     one_epoch_iter_num = len(train_loader)
     print("Iterations per epoch: ", one_epoch_iter_num)
     iteration_num = args.epochs * one_epoch_iter_num
@@ -104,8 +127,13 @@ for seed_num in args.seed_list:
     elif args.lr_scheduler == "Single":
         scheduler = CosineAnnealingWarmUpSingle(optimizer, max_lr=args.lr_init * math.sqrt(args.batch_size), epochs=args.epochs, steps_per_epoch=one_epoch_iter_num, div_factor=math.sqrt(args.batch_size))
 
+    # Load scheduler state if resuming
+    if checkpoint is not None and 'scheduler' in checkpoint:
+        scheduler.load_state_dict(checkpoint['scheduler'])
+        print("Loaded scheduler state from checkpoint")
+
     model.train()
-    iteration = 0
+    iteration = start_iteration
     logger.loss = 0
 
     start = time.time()
@@ -141,14 +169,17 @@ for seed_num in args.seed_list:
                         logger.val_loss += np.mean(val_loss)
                         val_iteration += 1
                     
-                    logger.log_val_loss(val_iteration, iteration)
-                    logger.add_validation_logs(iteration)
-                    logger.save(model, optimizer, iteration, epoch)
+                    if val_iteration > 0:
+                        logger.log_val_loss(val_iteration, iteration)
+                        logger.add_validation_logs(iteration)
+                        logger.save(model, optimizer, iteration, epoch, scheduler=scheduler, iteration=iteration)
+                    else:
+                        print("Warning: No validation batches processed, skipping validation logging")
                 model.train()
         pbar.update(1)
 
     logger.val_result_only()
-    save_valid_results.results_all_seeds(logger.test_results)
+    # save_valid_results.results_all_seeds(logger.test_results)
     
     # get model checkpoint - end of train step
     # initalize model (again)

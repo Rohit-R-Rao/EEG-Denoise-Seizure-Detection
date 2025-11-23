@@ -195,4 +195,6 @@ class CNN2D_LSTM_V8_4(nn.Module):
          
                 
 
+# Alias for get_detector_model function
+RESNET_LSTM = CNN2D_LSTM_V8_4
 

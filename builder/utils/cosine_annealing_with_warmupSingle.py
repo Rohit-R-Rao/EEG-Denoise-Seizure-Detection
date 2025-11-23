@@ -24,6 +24,28 @@ class CosineAnnealingWarmUpSingle(torch.optim.lr_scheduler.OneCycleLR):
     cycle_momentum: default is False
     """
 
+    @staticmethod
+    def _format_param(name, optimizer, param):
+        """Format parameter for each parameter group in optimizer."""
+        if isinstance(param, (list, tuple)):
+            if len(param) != len(optimizer.param_groups):
+                raise ValueError("expected {} values for {}, got {}".format(
+                    len(optimizer.param_groups), name, len(param)))
+            return param
+        else:
+            return [param] * len(optimizer.param_groups)
+
+    @staticmethod
+    def _annealing_linear(start, end, pct):
+        """Linear annealing function."""
+        return (end - start) * pct + start
+
+    @staticmethod
+    def _annealing_cos(start, end, pct):
+        """Cosine annealing function."""
+        cos_out = math.cos(math.pi * pct) + 1
+        return end + (start - end) / 2.0 * cos_out
+
     def __init__(self,
                  optimizer,
                  max_lr,

@@ -115,7 +115,8 @@ class Evaluator(object):
                 test_pat_dict[pat_id].append([int(pat_seiz), idx])
             for pat in test_pat_dict:
                 seizure_types = list(set([seiz for seiz, idx in test_pat_dict[pat]]))
-                seizure_types.remove(0)
+                # Remove 0 (normal class) if present, as we only want seizure types
+                seizure_types = [s for s in seizure_types if s != 0]
 
                 for seizure_type in seizure_types:
                     rest_types = list(seizure_types)

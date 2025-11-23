@@ -3,7 +3,7 @@ scipy
 numpy
 pandas
 matplotlib
-sklearn
+scikit-learn
 pyyaml
 openpyxl
 tqdm

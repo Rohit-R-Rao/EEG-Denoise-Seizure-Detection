@@ -161,7 +161,18 @@ def sliding_window_v1(args, iteration, train_x, train_y, seq_lengths, target_len
                 model.temperature_scaling.collect_labels(final_target)
                 
             proba = nn.functional.softmax(logits, dim=1)
-            if args.batch_size == 1:
+            # Collect predictions for margin test evaluation (works for any batch size)
+            if flow_type == "test" and hasattr(logger, 'pred_results'):
+                # Append all predictions in the batch
+                batch_size = proba.shape[0]
+                for i in range(batch_size):
+                    logger.pred_results.append(proba[i])
+                    # final_target can be scalar (batch_size=1) or 1D tensor (batch_size>1)
+                    if final_target.dim() == 0:  # scalar
+                        logger.ans_results.append(final_target.item())
+                    else:  # 1D tensor
+                        logger.ans_results.append(final_target[i].item())
+            elif args.batch_size == 1:
                 logger.pred_results.append(proba[0])
                 logger.ans_results.append(final_target.item())
             if args.batch_size == 1:

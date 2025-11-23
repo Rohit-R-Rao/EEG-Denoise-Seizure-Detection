@@ -17,7 +17,7 @@ parser.add_argument('--cpu', type=int, default=0)
 parser.add_argument('--gpus', type=int, default=1)
 parser.add_argument('--reset', default=False, action='store_true')
 parser.add_argument('--project-name', type=str, default="test")
-parser.add_argument('--checkpoint', '-cp', type=bool, default=False)
+parser.add_argument('--checkpoint', '-cp', default=False, action='store_true')
 
 # Training Parameters e
 parser.add_argument('--epochs', type=int, default=10)

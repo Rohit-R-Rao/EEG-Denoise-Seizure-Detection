@@ -169,4 +169,6 @@ class CNN2D_LSTM_V8_6(nn.Module):
          
                 
 
+# Alias for get_detector_model function
+RESNET_DILATION_LSTM = CNN2D_LSTM_V8_6
 

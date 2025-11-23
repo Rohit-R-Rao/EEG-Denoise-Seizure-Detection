@@ -493,12 +493,17 @@ for seed_num in args.seed_list:
     evaluator = Evaluator(args)
     name = args.project_name
     if args.last:
-        ckpt_path = args.dir_result + '/' + name + '/ckpts/best_{}.pth'.format(str(args.seed))
+        ckpt_path = args.dir_result + '/' + name + '/ckpts/last_{}.pth'.format(str(args.seed))
     elif args.best:
         ckpt_path = args.dir_result + '/' + name + '/ckpts/best_{}.pth'.format(str(args.seed))
+    
     if not os.path.exists(ckpt_path):
-        exit(1)
-    ckpt = torch.load(ckpt_path, map_location=device)
+        print(f"Checkpoint not found at {ckpt_path}, trying best_0.pth...")
+        ckpt_path = args.dir_result + '/' + name + '/ckpts/best_0.pth'
+        if not os.path.exists(ckpt_path):
+            print(f"Checkpoint not found at {ckpt_path}. Exiting...")
+            exit(1)
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
     state = {k: v for k, v in ckpt['model'].items()}
     model.load_state_dict(state)
     model.eval()
@@ -546,8 +551,12 @@ for seed_num in args.seed_list:
                                             target_lengths, model, logger, device, scheduler,
                                             optimizer, criterion, signal_name_list=signal_name_list, flow_type="test")    # margin_test , test
 
-            hyps.append(torch.stack(logger.pred_results).numpy()[:,1])
-            refs.append(logger.ans_results)
+            # Only append if pred_results is not empty
+            if len(logger.pred_results) > 0:
+                hyps.append(torch.stack(logger.pred_results).numpy()[:,1])
+                refs.append(logger.ans_results)
+            else:
+                print(f"Warning: No predictions for batch {count}, skipping...")
 
             logger.pred_results = []
             logger.ans_results = []
@@ -573,6 +582,12 @@ for seed_num in args.seed_list:
     # exit(1)
     print("##### margin test evaluation #####")
     target_stack = torch.tensor([item for sublist in refs for item in sublist])
+    
+    # Check if we have any data to evaluate
+    if len(target_stack) == 0 or len(hyps_list) == 0:
+        print("Warning: No data collected for evaluation. Skipping margin test.")
+        exit(1)
+    
     thresholds_margintest = list(logger.evaluator.thresholds_margintest)
     print("thresholds_margintest: ", thresholds_margintest)
     margin_threshold = 0
@@ -580,12 +595,24 @@ for seed_num in args.seed_list:
         for threshold_idx, threshold in enumerate(thresholds_margintest):
             hyp_output = list([[int(hyp_step > threshold) for hyp_step in hyp_one] for hyp_one in hyps_list])
             pred_stack = torch.tensor(list([item for sublist in hyp_output for item in sublist]))
+            
+            # Check if stacks are empty before processing
+            if len(pred_stack) == 0 or len(target_stack) == 0:
+                print(f"Warning: Empty stacks for margin {margin}, threshold {threshold}. Skipping...")
+                continue
+            
             margin_threshold = threshold
             # print("pred_stack: ", pred_stack)
             # print("target_stack: ", target_stack)
             # target_stack = target_stack.permute(0,1)
             pred_stack2 = pred_stack.unsqueeze(1)
             target_stack2 = target_stack.unsqueeze(1)
+            
+            # Additional check before calling evaluator
+            if pred_stack2.shape[0] == 0 or target_stack2.shape[0] == 0:
+                print(f"Warning: Empty stacks after unsqueeze for margin {margin}, threshold {threshold}. Skipping...")
+                continue
+                
             rise_true, rise_pred_correct, fall_true, fall_pred_correct = binary_detector_evaluator(pred_stack2, target_stack2, margin)
             print("Margin: {}, Threshold: {}, TPR: {}, TNR: {}".format(str(margin), str(threshold), str(logger.evaluator.picked_tprs[threshold_idx]), str(logger.evaluator.picked_tnrs[threshold_idx])))
             print("rise_accuarcy:{}, fall_accuracy:{}".format(str(np.round((rise_pred_correct/float(rise_true)), decimals=4)), str(np.round((fall_pred_correct/float(fall_true)), decimals=4))))
