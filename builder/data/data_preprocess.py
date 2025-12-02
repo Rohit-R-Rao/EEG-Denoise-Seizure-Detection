@@ -233,10 +233,24 @@ class Detector_Dataset(torch.utils.data.Dataset):
 def get_data_preprocessed(args, mode="train"):
    
     print("Preparing data for bianry detector...")
-    train_data_path = args.data_path + "/dataset-tuh_task-binary_datatype-train_v6"
-    # dev_data_path = args.data_path + "/dataset-tuh_task-binary_datatype-dev_v6"
-    # dev_data_path = args.data_path + "/dataset-tuh_task-binary_noslice_datatype-dev_v6"
-    dev_data_path = args.data_path + "/dataset-tuh_task-binary_datatype-dev_v6"
+    # Use provided paths or construct default paths
+    if args.train_data_dir:
+        # If it's an absolute path, use it directly; otherwise join with data_path
+        if os.path.isabs(args.train_data_dir):
+            train_data_path = args.train_data_dir
+        else:
+            train_data_path = os.path.join(args.data_path, args.train_data_dir)
+    else:
+        train_data_path = args.data_path + "/dataset-tuh_task-binary_datatype-train_v6"
+    
+    if args.dev_data_dir:
+        # If it's an absolute path, use it directly; otherwise join with data_path
+        if os.path.isabs(args.dev_data_dir):
+            dev_data_path = args.dev_data_dir
+        else:
+            dev_data_path = os.path.join(args.data_path, args.dev_data_dir)
+    else:
+        dev_data_path = args.data_path + "/dataset-tuh_task-binary_datatype-dev_v6"
     # train_dir = search_walk({"path": train_data_path, "extension": ".pkl"})
     # train_dir = search_walk({"path": train_data_path, "extension": ".pkl"})
     # dev_dir = search_walk({"path": dev_data_path, "extension": ".pkl"})

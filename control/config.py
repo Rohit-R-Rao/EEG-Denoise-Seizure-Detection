@@ -129,6 +129,12 @@ parser.add_argument('--dev-bckg-num', type=int, default=10)
 
 parser.add_argument('--get-model-summary', type=bool, default=False, help="print model summary before training")
 
+# Dataset directory overrides (if not provided, uses default construction)
+parser.add_argument('--train-data-dir', type=str, default=None,
+                    help='Full path or directory name for training dataset (overrides default path construction)')
+parser.add_argument('--dev-data-dir', type=str, default=None,
+                    help='Full path or directory name for dev dataset (overrides default path construction)')
+
 args = parser.parse_args()
 args.cnn_channel_sizes = [args.sincnet_bandnum, 10, 10]
 
