@@ -115,6 +115,7 @@ parser.add_argument('--margin-list', type=list, default=[3,5])
 # parser.add_argument('--tnr-for-margintest', type=list, default=[1.0, 0.95, 0.9, 0.85, 0.8])
 parser.add_argument('--tnr-for-margintest', type=list, default=[0.95])
 parser.add_argument('--calibration', type=bool, default=False)
+parser.add_argument('--ignore-model-speed', default=True, action='store_false', dest='ignore_model_speed', help='Enable timing measurements during inference (default: timing disabled)')
 
 # target groups options
 # "1": '0':'bckg', '1':'gnsz', '2':'fnsz', '3':'spsz', '4':'cpsz', '5':'absz', '6':'tnsz', '7':'tcsz', '8':'mysz'
@@ -128,12 +129,6 @@ parser.add_argument('--binary-sampler-type', type=str, default="6types", choices
 parser.add_argument('--dev-bckg-num', type=int, default=10)
 
 parser.add_argument('--get-model-summary', type=bool, default=False, help="print model summary before training")
-
-# Dataset directory overrides (if not provided, uses default construction)
-parser.add_argument('--train-data-dir', type=str, default=None,
-                    help='Full path or directory name for training dataset (overrides default path construction)')
-parser.add_argument('--dev-data-dir', type=str, default=None,
-                    help='Full path or directory name for dev dataset (overrides default path construction)')
 
 args = parser.parse_args()
 args.cnn_channel_sizes = [args.sincnet_bandnum, 10, 10]
