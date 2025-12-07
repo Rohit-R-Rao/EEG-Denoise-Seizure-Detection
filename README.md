@@ -1,18 +1,150 @@
 # Reproduction of Real-Time Seizure Detection using Electroencephalogram (EEG)
 
 ### Primary Contributions
-Rohit Rao
+**Rohit Rao**
 12/07/2025
 
+* **`denoising.py`** - Implements 3 frequency-domain transforms (Bandpass, Notch, SWT) to denoise EEG input signals before inference using the models defined in this repo.
+* **`process_TUH_dataset.py`** - Adapted the original preprocessing code with improved structure and updates for modern libraries. This script streamlines the creation of an EEG signals processor for any EEG dataset.
 
-denoising.py - Uses 3 difference frequency domain based transforms to denoise an EEG input signal before inferece using the models defined in this repo.
-process_TUH_dataset.py - Adapted the original preprocessing code with some better structure and accomodated outdated libraries and dependencies. This will help in the process of creating an EEG signals processor for any EEG dataset.
+I made substantial changes to the existing preprocessing, training, and inference code, including major bug fixes, quality-of-life adjustments, and new feature add-ons.
 
-I made many changes to the existing, preprocessing, training and inference code. Many of these were major bug fixes, quality of life adjustments and some add-on features.
+---
 
+## Setup
+
+Install the required dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Preprocessing:
+```bash
+python 1_preprocess.py --data_type train --cpu_num 12 --label_type tse_bi --save_directory out/ --samplerate 200
+python 1_preprocess.py --data_type dev --cpu_num 12 --label_type tse_bi --save_directory out/ --samplerate 200
+```
+Training:
+```bash
+# Model 1: ResNet Short LSTM Raw
+CUDA_VISIBLE_DEVICES=0 python3 ./2_train.py \
+    --project-name resnet_short_lstm_raw \
+    --model resnet_lstm \
+    --task-type binary \
+    --optim adam \
+    --window-size 4 \
+    --window-shift 1 \
+    --eeg-type bipolar \
+    --enc-model raw \
+    --binary-sampler-type 6types \
+    --binary-target-groups 2 \
+    --epoch 8 \
+    --batch-size 32 \
+    --seizure-wise-eval-for-binary True
+```
+
+```bash
+# Model 2: ResNet Dilation LSTM Raw
+CUDA_VISIBLE_DEVICES=0 python3 ./2_train.py \
+    --project-name resnet_dilation_lstm_raw \
+    --model resnet_dilation_lstm \
+    --task-type binary \
+    --optim adam \
+    --window-size 4 \
+    --window-shift 1 \
+    --eeg-type bipolar \
+    --enc-model raw \
+    --binary-sampler-type 6types \
+    --binary-target-groups 2 \
+    --epoch 8 \
+    --batch-size 32 \
+    --seizure-wise-eval-for-binary True
+```
+Testing:
+```bash
+# Model 1: ResNet Short LSTM Raw
+CUDA_VISIBLE_DEVICES=0 python3 ./3_test.py \
+    --project-name resnet_short_lstm_raw \
+    --model resnet_lstm \
+    --task-type binary \
+    --optim adam \
+    --window-size 4 \
+    --window-shift 1 \
+    --eeg-type bipolar \
+    --enc-model raw \
+    --binary-sampler-type 6types \
+    --binary-target-groups 2 \
+    --seed 0 \
+    --denoise bandpass \
+    --ignore-model-speed \
+    --cpu 1
+```
+
+```bash
+# Model 2: ResNet Dilation LSTM Raw
+CUDA_VISIBLE_DEVICES=0 python3 ./3_test.py \
+    --project-name resnet_dilation_lstm_raw \
+    --model resnet_dilation_lstm \
+    --task-type binary \
+    --optim adam \
+    --window-size 4 \
+    --window-shift 1 \
+    --eeg-type bipolar \
+    --enc-model raw \
+    --binary-sampler-type 6types \
+    --binary-target-groups 2 \
+    --seed 0 \
+    --denoise bandpass \
+    --ignore-model-speed \
+    --cpu 1
+```
+Seizure-wise Test
+```bash
+# Model 1: ResNet Short LSTM Raw
+CUDA_VISIBLE_DEVICES=0 python3 ./4_seiz_test.py \
+    --project-name resnet_short_lstm_raw \
+    --model resnet_lstm \
+    --task-type binary \
+    --optim adam \
+    --window-size 4 \
+    --window-shift 1 \
+    --eeg-type bipolar \
+    --enc-model raw \
+    --seizure-wise-eval-for-binary True \
+    --binary-sampler-type 6types \
+    --binary-target-groups 2 \
+    --best \
+    --seed 0 \
+    --denoise bandpass
+```
+
+```bash
+# Model 2: ResNet Dilation LSTM Raw
+CUDA_VISIBLE_DEVICES=0 python3 ./4_seiz_test.py \
+    --project-name resnet_dilation_lstm_raw \
+    --model resnet_dilation_lstm \
+    --task-type binary \
+    --optim adam \
+    --window-size 4 \
+    --window-shift 1 \
+    --eeg-type bipolar \
+    --enc-model raw \
+    --binary-sampler-type 6types \
+    --binary-target-groups 2 \
+    --seizure-wise-eval-for-binary True \
+    --best \
+    --seed 0 \
+    --denoise bandpass
+```
+
+*Note: "bandpass can be swapped with "notch" or "swt".
+
+Original Repository README:
 # Real-Time Seizure Detection using Electroencephalogram (EEG)
 
 This is the repository for ["Real-Time Seizure Detection using EEG: A Comprehensive Comparison of Recent Approaches under a Realistic Setting"](https://proceedings.mlr.press/v174/lee22a/lee22a.pdf). You can checkout [pdf file](paper/Real-Time%20Seizure%20Detection%20using%20EEG-A%20Comprehensive%20Comparison%20of%20Recent%20Approaches%20under%20a%20Realistic%20Setting.pdf) of our paper in our github repo.
+
+
 
 - If you have used our code or referred to our result in your research, please cite:
 ```
