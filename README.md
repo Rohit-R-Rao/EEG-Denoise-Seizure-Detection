@@ -1,3 +1,15 @@
+# Reproduction of Real-Time Seizure Detection using Electroencephalogram (EEG)
+
+### Primary Contributions
+Rohit Rao
+12/07/2025
+
+
+denoising.py - Uses 3 difference frequency domain based transforms to denoise an EEG input signal before inferece using the models defined in this repo.
+process_TUH_dataset.py - Adapted the original preprocessing code with some better structure and accomodated outdated libraries and dependencies. This will help in the process of creating an EEG signals processor for any EEG dataset.
+
+I made many changes to the existing, preprocessing, training and inference code. Many of these were major bug fixes, quality of life adjustments and some add-on features.
+
 # Real-Time Seizure Detection using Electroencephalogram (EEG)
 
 This is the repository for ["Real-Time Seizure Detection using EEG: A Comprehensive Comparison of Recent Approaches under a Realistic Setting"](https://proceedings.mlr.press/v174/lee22a/lee22a.pdf). You can checkout [pdf file](paper/Real-Time%20Seizure%20Detection%20using%20EEG-A%20Comprehensive%20Comparison%20of%20Recent%20Approaches%20under%20a%20Realistic%20Setting.pdf) of our paper in our github repo.
