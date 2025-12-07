@@ -12,6 +12,14 @@ import torch
 from torch.autograd import Variable
 import torch.nn as nn
 
+# Set CPU threads explicitly to 12 (override any environment variables)
+torch.set_num_threads(12)
+# Also set for underlying libraries (OpenMP, MKL, NumExpr)
+os.environ['OMP_NUM_THREADS'] = '12'
+os.environ['MKL_NUM_THREADS'] = '12'
+os.environ['NUMEXPR_NUM_THREADS'] = '12'
+os.environ['OPENBLAS_NUM_THREADS'] = '12'
+
 from control.config import args
 from builder.data.data_preprocess import get_data_preprocessed
 from builder.models import get_detector_model
@@ -20,6 +28,7 @@ from builder.utils.logger import Logger
 from builder.trainer.trainer import *
 from builder.utils.utils import set_seeds, set_devices
 from builder.utils.binary_performance_estimator import binary_detector_evaluator
+from denoising import apply_denoising_from_args
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 label_method_max = True
@@ -525,6 +534,10 @@ for seed_num in args.seed_list:
             count += 1
             test_x, test_y, seq_lengths, target_lengths, aug_list, signal_name_list = test_batch
             test_x = test_x.to(device)
+            
+            # Apply denoising if requested (before slicing)
+            if hasattr(args, 'denoise') and args.denoise:
+                test_x = apply_denoising_from_args(test_x, args.denoise, args.sample_rate, device)
             
             iter_num = math.ceil(test_x.shape[1] / 6000)
             signal_len = test_x.shape[1]

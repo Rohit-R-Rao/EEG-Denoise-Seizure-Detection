@@ -21,6 +21,14 @@ import torch
 from torch.autograd import Variable
 import torch.nn as nn
 
+# Set CPU threads explicitly to 12 (override any environment variables)
+torch.set_num_threads(12)
+# Also set for underlying libraries (OpenMP, MKL, NumExpr)
+os.environ['OMP_NUM_THREADS'] = '12'
+os.environ['MKL_NUM_THREADS'] = '12'
+os.environ['NUMEXPR_NUM_THREADS'] = '12'
+os.environ['OPENBLAS_NUM_THREADS'] = '12'
+
 from control.config import args
 from builder.data.data_preprocess import get_data_preprocessed
 from builder.models import get_detector_model
@@ -28,6 +36,7 @@ from builder.utils.metrics import Evaluator
 from builder.utils.logger import Logger
 from builder.trainer.trainer import *
 from builder.utils.utils import set_seeds, set_devices
+from denoising import apply_denoising_from_args
 
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 
@@ -94,10 +103,18 @@ for name in names:
         for test_batch in tqdm(test_loader, total=len(test_loader), bar_format="{desc:<5}{percentage:3.0f}%|{bar:10}{r_bar}"):
             test_x, test_y, seq_lengths, target_lengths, aug_list, signal_name_list = test_batch
             test_x = test_x.to(device)
+            
+            # Apply denoising if requested
+            if hasattr(args, 'denoise') and args.denoise:
+                test_x = apply_denoising_from_args(test_x, args.denoise, args.sample_rate, device)
+            
             iteration += 1
             
             ### Model Structures
-            print(f'iteration : {iteration}')
+            # Performance optimization: Removed per-iteration print statement
+            # Uncomment below for debugging (prints every 10th iteration)
+            # if iteration % 10 == 0:
+            #     print(f'iteration : {iteration}')
             iteration_start = time.time()
             if args.task_type == "binary": 
                 model, _ = sliding_window_v1(args, iteration, test_x, test_y, seq_lengths, 

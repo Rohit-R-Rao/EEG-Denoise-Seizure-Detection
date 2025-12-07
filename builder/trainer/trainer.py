@@ -182,17 +182,43 @@ def sliding_window_v1(args, iteration, train_x, train_y, seq_lengths, target_len
             val_loss.append(loss.item())
             logger.evaluator.add_seizure_info(list(signal_name_list))
 
+            # Performance optimization: Defer CPU transfers - collect tensors on GPU first
+            # Initialize deferred lists if they don't exist
+            if not hasattr(logger, '_deferred_proba_batch'):
+                logger._deferred_proba_batch = []
+                logger._deferred_target_batch = []
+            
+            # Store tensors on GPU for batch conversion later (much faster than per-window CPU transfer)
             if args.binary_target_groups == 1:
                 final_target[final_target != 0] = 1
                 re_proba = torch.cat((proba[:,0].unsqueeze(1), torch.sum(proba[:,1:], 1).unsqueeze(1)), 1)
-                logger.evaluator.add_batch(np.array(final_target.cpu()), np.array(re_proba.cpu()))
+                logger._deferred_proba_batch.append(re_proba)  # Keep on GPU
+                logger._deferred_target_batch.append(final_target)  # Keep on GPU
             else:
-                logger.evaluator.add_batch(np.array(final_target.cpu()), np.array(proba.cpu()))
+                logger._deferred_proba_batch.append(proba)  # Keep on GPU
+                logger._deferred_target_batch.append(final_target)  # Keep on GPU
 
             if args.margin_test:
                 probability = proba[:, 1]
                 logger.evaluator.probability_list.append(probability)
                 logger.evaluator.final_target_list.append(final_target)
+    
+    # After processing all windows, convert to CPU/numpy in one batch operation (performance optimization)
+    if flow_type != "train" and hasattr(logger, '_deferred_proba_batch') and len(logger._deferred_proba_batch) > 0:
+        # Concatenate all windows and convert to CPU/numpy in one operation (much faster)
+        all_proba = torch.cat(logger._deferred_proba_batch, dim=0)
+        all_target = torch.cat(logger._deferred_target_batch, dim=0)
+        
+        # Single CPU transfer for all windows instead of one per window
+        all_proba_np = all_proba.cpu().numpy()
+        all_target_np = all_target.cpu().numpy()
+        
+        # Add to evaluator (equivalent to calling add_batch multiple times, but faster)
+        logger.evaluator.add_batch(all_target_np, all_proba_np)
+        
+        # Clear deferred lists for next batch/file
+        logger._deferred_proba_batch = []
+        logger._deferred_target_batch = []
     
     if flow_type == "train":    
         return model, iter_loss
